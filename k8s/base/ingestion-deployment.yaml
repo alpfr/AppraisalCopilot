@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-ingestion
+  namespace: appraisal-copilot
+  labels:
+    app: document-ingestion
+    app.kubernetes.io/part-of: appraisal-copilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: document-ingestion
+  template:
+    metadata:
+      labels:
+        app: document-ingestion
+        azure.workload/spot-tolerant: "true"
+    spec:
+      # Ingestion is batch-friendly — ideal for spot
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.azure.com/scalesetpriority
+                    operator: In
+                    values:
+                      - spot
+      tolerations:
+        - key: kubernetes.azure.com/scalesetpriority
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: ingestion
+          image: ACR_REGISTRY/appraisal-copilot-backend:latest
+          command: ["python", "-m", "ingestion_worker"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appraisal-copilot-secrets
+                  key: database-url
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /secrets/gcp/service-account.json
+            - name: FAISS_INDEX_PATH
+              value: /data/faiss
+            - name: GCS_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: appraisal-copilot-config
+                  key: gcs-bucket
+          volumeMounts:
+            - name: faiss-data
+              mountPath: /data/faiss
+            - name: gcp-credentials
+              mountPath: /secrets/gcp
+              readOnly: true
+      volumes:
+        - name: faiss-data
+          persistentVolumeClaim:
+            claimName: faiss-pvc
+        - name: gcp-credentials
+          secret:
+            secretName: gcp-service-account

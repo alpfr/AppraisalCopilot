@@ -1,0 +1,98 @@
+name: Build & Deploy to AKS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ACR_REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
+  AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR Login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push backend
+        run: |
+          docker build -t ${ACR_REGISTRY}/appraisal-copilot-backend:${{ steps.meta.outputs.tag }} \
+                        -t ${ACR_REGISTRY}/appraisal-copilot-backend:latest \
+                        -f backend/Dockerfile backend/
+          docker push ${ACR_REGISTRY}/appraisal-copilot-backend --all-tags
+
+      - name: Build & push frontend
+        run: |
+          docker build -t ${ACR_REGISTRY}/appraisal-copilot-frontend:${{ steps.meta.outputs.tag }} \
+                        -t ${ACR_REGISTRY}/appraisal-copilot-frontend:latest \
+                        -f frontend/Dockerfile frontend/
+          docker push ${ACR_REGISTRY}/appraisal-copilot-frontend --all-tags
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${AKS_RESOURCE_GROUP} \
+            --cluster-name ${AKS_CLUSTER_NAME} \
+            --overwrite-existing
+
+      - name: Deploy base manifests
+        run: |
+          kubectl apply -f k8s/base/namespace.yaml
+          kubectl apply -f k8s/base/configmap.yaml
+          kubectl apply -f k8s/base/
+
+      - name: Deploy spot policies
+        run: kubectl apply -f k8s/spot/
+
+      - name: Update images
+        env:
+          TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          kubectl -n appraisal-copilot set image deployment/frontend \
+            frontend=${ACR_REGISTRY}/appraisal-copilot-frontend:${TAG}
+          kubectl -n appraisal-copilot set image deployment/backend \
+            backend=${ACR_REGISTRY}/appraisal-copilot-backend:${TAG}
+          kubectl -n appraisal-copilot set image deployment/document-ingestion \
+            ingestion=${ACR_REGISTRY}/appraisal-copilot-backend:${TAG}
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n appraisal-copilot rollout status deployment/frontend --timeout=180s
+          kubectl -n appraisal-copilot rollout status deployment/backend --timeout=180s

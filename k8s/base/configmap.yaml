@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: appraisal-copilot-config
+  namespace: appraisal-copilot
+data:
+  vertex-ai-project: "YOUR_GCP_PROJECT_ID"
+  vertex-ai-location: "us-central1"
+  gcs-bucket: "appraisal-copilot-documents"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: faiss-pvc
+  namespace: appraisal-copilot
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 10Gi

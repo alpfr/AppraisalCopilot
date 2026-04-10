@@ -1,0 +1,33 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: appraisal-copilot
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: appraisal-copilot
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+---
+# Ingestion is batch-tolerant — allow full disruption
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingestion-pdb
+  namespace: appraisal-copilot
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: document-ingestion
