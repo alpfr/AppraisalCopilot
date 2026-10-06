@@ -7,8 +7,8 @@
 set -euo pipefail
 
 # ---- Configuration (override via environment variables) ----
-RESOURCE_GROUP="${RESOURCE_GROUP:?Set RESOURCE_GROUP}"
-CLUSTER_NAME="${CLUSTER_NAME:?Set CLUSTER_NAME}"
+RESOURCE_GROUP="${RESOURCE_GROUP:-medassist-rg}"
+CLUSTER_NAME="${CLUSTER_NAME:-medassist-aks-public}"
 SPOT_POOL_NAME="${SPOT_POOL_NAME:-spotpool}"
 SPOT_VM_SIZE="${SPOT_VM_SIZE:-Standard_D4as_v5}"
 SPOT_MIN_COUNT="${SPOT_MIN_COUNT:-1}"
